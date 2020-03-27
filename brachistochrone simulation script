@@ -1,0 +1,167 @@
+import csv
+import os
+import bpy
+import math
+from math import sqrt
+
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)        # Deletes previous configuration before creating again
+
+x1 = 0
+y1 = 6
+
+x2 = 9
+y2= 0
+
+filename = 'curve105.csv'
+directory = 'C:\\Users\\user\\Desktop'           # Reads in xyz coordinates of brachistochrone curve from (x1, y1) -> (x2, y2)
+fullpath = os.path.join(directory, filename)
+
+# Read verts from CSV file and store in a float list
+verts = []
+with open(fullpath, newline='') as csvfile:
+    reader = csv.reader(csvfile, quoting=csv.QUOTE_NONNUMERIC)
+    verts = list(reader)
+
+# Compute edges from vertex list
+edges = []
+for edge in range(len(verts)-1):
+    edges.append([edge,edge+1])
+
+radius = 0.1  # Radius of tracks
+R = radius*3  # Radius of Sphere
+gap = R + radius
+
+frb = 0.025  # Coeficient of Fricton for the spheres
+frt = 0.25   # Coeficient of Fricton for the tracks
+
+
+bev = 3     # Offset of rounded corner on the drop-off track  
+
+# Place 3D cursor at origin
+bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+
+# Create empty mesh and attach to object
+Mesh = bpy.data.meshes.new("brachistochrone_mesh")
+Obj = bpy.data.objects.new("brachistochrone_obj", Mesh)
+Obj.location = bpy.context.scene.cursor.location
+
+# Use vertex and edge data to populate the mesh
+Mesh.from_pydata(verts,edges,[])
+bpy.context.collection.objects.link(Obj)
+
+# Create outline circle for curve bevel geometry
+bpy.ops.curve.primitive_bezier_circle_add(radius=radius, enter_editmode=False, location=(0, 0, 0))
+#bpy.ops.transform.resize(value=(0.02, 0.02, 0.02))
+
+ob = bpy.context.scene.objects["brachistochrone_obj"]       # Get the object
+bpy.ops.object.select_all(action='DESELECT')                # Deselect all objects
+bpy.context.view_layer.objects.active = ob                  # Make the brachistochrone_obj the active object 
+ob.select_set(True)                                         # Select the brachistochrone_obj
+bpy.ops.object.convert(target='CURVE')                      # Convert to curve
+
+# add bevel object
+bpy.context.object.data.bevel_object = bpy.data.objects["BezierCircle"]
+bpy.context.object.data.use_fill_caps = True
+
+bpy.ops.object.convert(target='MESH')                       # Convert back to a mesh
+bpy.ops.rigidbody.object_add()                              # Make a rigid body
+bpy.context.object.rigid_body.type = 'PASSIVE'              # Rigid body propities
+bpy.context.object.rigid_body.collision_shape = 'MESH'      # Changes collision shape to the correct geometry
+bpy.context.object.rigid_body.friction = frt
+bpy.context.object.rigid_body.use_margin = True
+bpy.context.object.rigid_body.collision_margin = 0.0001     # Sets low collision margin
+bpy.ops.object.shade_smooth()                                  #Duplicate for second track
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+
+#Create spheres to roll down the track
+bpy.ops.mesh.primitive_uv_sphere_add(radius = R , location=(1.01*(sqrt((R+radius)*(R+radius) - (gap/2)*(gap/2))), gap/2, y1+R))
+bpy.ops.rigidbody.object_add()
+bpy.context.object.rigid_body.type = 'ACTIVE'        # Sphere properties
+bpy.context.object.rigid_body.linear_damping = 0
+bpy.context.object.rigid_body.angular_damping = 0
+bpy.context.object.rigid_body.use_margin = True
+bpy.context.object.rigid_body.collision_margin = 0.0001
+bpy.context.object.rigid_body.friction = frb
+bpy.context.object.rigid_body.collision_shape = 'SPHERE'
+bpy.ops.object.shade_smooth()                                   # Dublicate two morw for the other tracks
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 2*gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 2*gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+
+# Creates linear track from (x1,y1) -> (x2,y2)
+bpy.ops.mesh.primitive_cylinder_add(radius = radius,depth = sqrt(x2*x2 + y1*y1),  location=(x2/2 , 8*radius, y1/2 ))
+bpy.ops.transform.rotate(value=-math.atan(x2/y1), orient_axis='Y', orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), orient_matrix_type='GLOBAL', constraint_axis=(True, True, True),)
+bpy.ops.rigidbody.object_add()                      # Track rigid body properties
+bpy.context.object.rigid_body.type = 'PASSIVE'
+bpy.context.object.rigid_body.collision_shape = 'MESH'
+bpy.context.object.rigid_body.friction = frt
+bpy.context.object.rigid_body.use_margin = True
+bpy.context.object.rigid_body.collision_margin = 0.0001
+bpy.ops.object.shade_smooth()                          # Duplicate second track
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+
+# Creates third track with large drop off
+bpy.ops.mesh.primitive_plane_add(enter_editmode=False, align='WORLD',size=x2, location=((x2)/2, 4*gap, y1/2), rotation=(1.5708, 1.5708, 0)) 
+bpy.ops.transform.resize(value=(1 ,1 , y1/x2), constraint_axis=(False, False, False)) # creates plane of set demensions
+
+bpy.ops.object.mode_set(mode = 'OBJECT')
+obj = bpy.context.active_object
+bpy.ops.object.mode_set(mode = 'EDIT') 
+bpy.ops.mesh.select_mode(type="VERT")
+bpy.ops.mesh.select_all(action = 'DESELECT') 
+bpy.ops.object.mode_set(mode = 'OBJECT')
+obj.data.vertices[-2].select = True
+bpy.ops.object.mode_set(mode = 'EDIT') 
+bpy.ops.mesh.delete(type='VERT')         # Selects and deletes the top right vertex       
+
+obj = bpy.context.active_object
+bpy.ops.object.mode_set(mode = 'EDIT') 
+bpy.ops.mesh.select_mode(type="VERT")
+bpy.ops.mesh.select_all(action = 'DESELECT')
+bpy.ops.object.mode_set(mode = 'OBJECT')
+obj.data.vertices[-2].select = True
+bpy.ops.object.mode_set(mode = 'EDIT')
+bpy.ops.mesh.bevel(offset=bev, offset_pct=0, segments=50, vertex_only=True) # Selects and bevels the bottom right vertex
+
+bpy.ops.object.mode_set(mode = 'OBJECT')
+bpy.ops.object.convert(target='CURVE')                # Converts MESH to a curve
+bpy.context.object.data.bevel_object = bpy.data.objects["BezierCircle"] # Uses BezierCircle as Bevel object
+bpy.context.object.data.use_fill_caps = True
+
+bpy.ops.object.convert(target='MESH')         # Converts Curve back to MESH
+bpy.ops.rigidbody.object_add()                # Given Track properties
+bpy.context.object.rigid_body.type = 'PASSIVE'
+bpy.context.object.rigid_body.collision_shape = 'MESH'
+bpy.context.object.rigid_body.friction = frt
+bpy.context.object.rigid_body.use_margin = True
+bpy.context.object.rigid_body.collision_margin = 0.0001
+bpy.ops.object.shade_smooth()                                # Duplicates second track
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+
+# Create walls between tracks to keep the spheres in place
+bpy.ops.mesh.primitive_cube_add(size=1, location=((x2+2*R)/2, -radius -gap*0.25, (y1+2*R)/2))
+bpy.ops.transform.resize(value=(x2+2*R, 0.5*gap, y1+ 2*R), constraint_axis=(True, True, True))
+bpy.ops.rigidbody.object_add()
+bpy.context.object.rigid_body.type = 'PASSIVE'         # Wall properties
+bpy.context.object.rigid_body.friction = 0
+bpy.context.object.rigid_body.use_margin = True
+bpy.context.object.rigid_body.collision_margin = 0.0001          # Duplicate 3 more for the other walls
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 2*gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 2*gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(0, 2*gap, 0), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+
+# Create stoper at the end of the ramp for the spheres to stop
+bpy.ops.mesh.primitive_cube_add(size=1, location=((x2 + R, gap*2.5, -R*0.125)))
+bpy.ops.transform.resize(value=(2*R, gap*6, 2*radius), constraint_axis=(True, True, True))
+bpy.ops.rigidbody.object_add()
+bpy.context.object.rigid_body.type = 'PASSIVE'     # Stopper properties
+bpy.context.object.rigid_body.friction = 1
+bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False, "mode":'TRANSLATION'}, TRANSFORM_OT_translate={"value":(R*0.25, 0, 2*R + 2*radius), "orient_type":'GLOBAL', "orient_matrix":((1, 0, 0), (0, 1, 0), (0, 0, 1)), "orient_matrix_type":'GLOBAL'})
+bpy.ops.transform.resize(value=(0.75, 1, 1), constraint_axis=(True, True, True))
+
+# Stopper back
+bpy.ops.mesh.primitive_cube_add(size=1, location=((x2 + 2*R + radius*0.5, gap*2.5, radius +R)))
+bpy.ops.transform.resize(value=(radius, gap*6, 2*radius + 2*R), constraint_axis=(True, True, True))
+bpy.ops.rigidbody.object_add()
+bpy.context.object.rigid_body.type = 'PASSIVE'
+bpy.context.object.rigid_body.friction = 1
